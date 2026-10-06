@@ -17,12 +17,14 @@
     "@capacitor/core": "^8.5.2",
     "@capacitor/local-notifications": "^8.3.1",
     "@tailwindcss/vite": "^4.3.3",
+    "canvas-confetti": "^1.9.4",
     "lucide-react": "^1.52.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "tailwindcss": "^4.3.3"
   },
   "devDependencies": {
+    "@types/canvas-confetti": "^1.9.0",
     "@types/node": "^24.13.3",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.7",

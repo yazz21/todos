@@ -1,37 +1,57 @@
 import React, { useState, useEffect } from 'react';
-import type { Task, UserSettings, TaskFilter } from './types';
+import type { Task, Routine, RoutineInterval, UserProfile, Quest, RewardItem, UserSettings, MainTab, TaskFilter } from './types';
 import { storage } from './services/storage';
 import { notificationService } from './services/notifications';
+import { soundService } from './services/sound';
+import { gamification } from './services/gamification';
 import { TaskInput } from './components/TaskInput';
 import { TaskList } from './components/TaskList';
+import { RoutineList } from './components/RoutineList';
+import { GameStatsHeader } from './components/GameStatsHeader';
+import { QuestsModal } from './components/QuestsModal';
+import { RewardsVaultModal } from './components/RewardsVaultModal';
 import { SettingsModal } from './components/SettingsModal';
 import { HistoryModal } from './components/HistoryModal';
-import { Settings, Calendar, CheckCircle2, History } from 'lucide-react';
+import { Settings, History, CheckSquare, Repeat, Calendar } from 'lucide-react';
 
 export const App: React.FC = () => {
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [routines, setRoutines] = useState<Routine[]>([]);
+  const [profile, setProfile] = useState<UserProfile>(storage.loadProfile());
+  const [quests, setQuests] = useState<Quest[]>([]);
+  const [rewards, setRewards] = useState<RewardItem[]>([]);
   const [settings, setSettings] = useState<UserSettings>(storage.loadSettings());
+
+  const [mainTab, setMainTab] = useState<MainTab>('tasks');
   const [filter, setFilter] = useState<TaskFilter>('all');
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+
+  const [isQuestsOpen, setIsQuestsOpen] = useState(false);
+  const [isRewardsOpen, setIsRewardsOpen] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
-  // Initialize app, load storage, check day rollover
+  // Initialize and check day rollover
   useEffect(() => {
-    const initialSettings = storage.loadSettings();
-    const initialTasks = storage.loadTasks();
+    const loadedSettings = storage.loadSettings();
+    const loadedTasks = storage.loadTasks();
+    const loadedProfile = storage.loadProfile();
+    const loadedQuests = storage.loadQuests();
 
-    const { updatedTasks, updatedSettings } = storage.checkDayRollover(
-      initialTasks,
-      initialSettings
-    );
+    const { updatedTasks, updatedSettings, updatedProfile, updatedQuests } =
+      storage.checkDayRollover(loadedTasks, loadedSettings, loadedProfile, loadedQuests);
 
     setTasks(updatedTasks);
     setSettings(updatedSettings);
+    setProfile(updatedProfile);
+    setQuests(updatedQuests);
+    setRoutines(storage.loadRoutines());
+    setRewards(storage.loadRewards());
+
+    soundService.setEnabled(updatedSettings.soundEnabled);
 
     // Initialize notification channels
     notificationService.initChannel();
 
-    // Schedule daily review if enabled
     if (updatedSettings.dailyReviewEnabled) {
       notificationService.scheduleDailyReview(
         updatedSettings.dailyReviewTime,
@@ -40,6 +60,27 @@ export const App: React.FC = () => {
     }
   }, []);
 
+  // Update quest progress helper
+  const incrementQuestProgress = (type: 'tasks' | 'routines', currentQuests: Quest[]) => {
+    return currentQuests.map((q) => {
+      if (q.completed) return q;
+      let shouldInc = false;
+      if (type === 'tasks' && (q.id === 'quest-daily-3' || q.id === 'quest-daily-5')) shouldInc = true;
+      if (type === 'routines' && (q.id === 'quest-routine-1' || q.id === 'quest-daily-5')) shouldInc = true;
+
+      if (shouldInc) {
+        const next = q.currentCount + 1;
+        return {
+          ...q,
+          currentCount: next,
+          completed: next >= q.targetCount,
+        };
+      }
+      return q;
+    });
+  };
+
+  // TASK ACTIONS
   const handleAddTask = async (
     title: string,
     targetTime?: string,
@@ -61,6 +102,8 @@ export const App: React.FC = () => {
       reminderEnabled: !!reminderEnabled,
       notificationId,
       createdAt: Date.now(),
+      xpReward: 25,
+      coinReward: 10,
     };
 
     if (reminderEnabled && notificationId) {
@@ -73,9 +116,18 @@ export const App: React.FC = () => {
   };
 
   const handleToggleTask = async (id: string) => {
+    let newlyCompleted = false;
+    let earnedXp = 25;
+    let earnedCoins = 10;
+
     const updated = tasks.map((task) => {
       if (task.id === id) {
         const nextCompleted = !task.completed;
+        if (nextCompleted) {
+          newlyCompleted = true;
+          earnedXp = task.xpReward || 25;
+          earnedCoins = task.coinReward || 10;
+        }
 
         if (nextCompleted && task.notificationId) {
           notificationService.cancelTaskReminder(task.notificationId);
@@ -94,6 +146,33 @@ export const App: React.FC = () => {
 
     setTasks(updated);
     storage.saveTasks(updated);
+
+    if (newlyCompleted) {
+      // Trigger dopamine feedback!
+      soundService.playTaskComplete();
+      gamification.triggerConfetti('small');
+
+      // Update XP & Coins
+      const { updated: newProfile, didLevelUp } = gamification.addExperience(
+        profile,
+        earnedXp,
+        earnedCoins
+      );
+      newProfile.totalCompletedTasks += 1;
+
+      if (didLevelUp) {
+        soundService.playLevelUp();
+        gamification.triggerConfetti('grand');
+      }
+
+      setProfile(newProfile);
+      storage.saveProfile(newProfile);
+
+      // Advance daily quests
+      const updatedQ = incrementQuestProgress('tasks', quests);
+      setQuests(updatedQ);
+      storage.saveQuests(updatedQ);
+    }
   };
 
   const handleDeleteTask = async (id: string) => {
@@ -101,7 +180,6 @@ export const App: React.FC = () => {
     if (taskToDelete?.notificationId) {
       await notificationService.cancelTaskReminder(taskToDelete.notificationId);
     }
-
     const updated = tasks.filter((t) => t.id !== id);
     setTasks(updated);
     storage.saveTasks(updated);
@@ -110,6 +188,170 @@ export const App: React.FC = () => {
   const handleClearCompleted = () => {
     const { remainingActive } = storage.archiveCompletedTasks(tasks);
     setTasks(remainingActive);
+  };
+
+  // ROUTINE ACTIONS
+  const handleAddRoutine = (title: string, interval: RoutineInterval, timeOfDay?: string) => {
+    const newRoutine: Routine = {
+      id: 'routine-' + Date.now().toString(36),
+      title,
+      interval,
+      timeOfDay,
+      nextDueAt: Date.now() + (interval === 'hourly' ? 3600000 : 86400000),
+      completedCount: 0,
+      streak: 0,
+      reminderEnabled: false,
+      xpReward: interval === 'weekly' ? 70 : interval === 'daily' ? 35 : 15,
+      coinReward: interval === 'weekly' ? 30 : interval === 'daily' ? 15 : 5,
+      createdAt: Date.now(),
+    };
+
+    const updated = [...routines, newRoutine];
+    setRoutines(updated);
+    storage.saveRoutines(updated);
+  };
+
+  const handleCompleteRoutine = (id: string) => {
+    let earnedXp = 35;
+    let earnedCoins = 15;
+
+    const updated = routines.map((r) => {
+      if (r.id === id) {
+        earnedXp = r.xpReward;
+        earnedCoins = r.coinReward;
+        return {
+          ...r,
+          completedCount: r.completedCount + 1,
+          streak: r.streak + 1,
+          lastCompletedAt: Date.now(),
+          nextDueAt: storage.calculateNextDueTimestamp(r),
+        };
+      }
+      return r;
+    });
+
+    setRoutines(updated);
+    storage.saveRoutines(updated);
+
+    // Audio & particles
+    soundService.playTaskComplete();
+    gamification.triggerConfetti('small');
+
+    // Experience & Coins
+    const { updated: newProfile, didLevelUp } = gamification.addExperience(
+      profile,
+      earnedXp,
+      earnedCoins
+    );
+    newProfile.totalCompletedRoutines += 1;
+
+    if (didLevelUp) {
+      soundService.playLevelUp();
+      gamification.triggerConfetti('grand');
+    }
+
+    setProfile(newProfile);
+    storage.saveProfile(newProfile);
+
+    // Update quest progress
+    const updatedQ = incrementQuestProgress('routines', quests);
+    setQuests(updatedQ);
+    storage.saveQuests(updatedQ);
+  };
+
+  const handleDeleteRoutine = (id: string) => {
+    const updated = routines.filter((r) => r.id !== id);
+    setRoutines(updated);
+    storage.saveRoutines(updated);
+  };
+
+  // QUESTS & REWARDS
+  const handleClaimQuest = (questId: string) => {
+    const quest = quests.find((q) => q.id === questId);
+    if (!quest || quest.claimed) return;
+
+    soundService.playRewardCollect();
+    gamification.triggerConfetti('small');
+
+    const { updated: newProfile, didLevelUp } = gamification.addExperience(
+      profile,
+      quest.rewardXp,
+      quest.rewardCoins
+    );
+
+    if (didLevelUp) {
+      soundService.playLevelUp();
+      gamification.triggerConfetti('grand');
+    }
+
+    setProfile(newProfile);
+    storage.saveProfile(newProfile);
+
+    const updatedQuests = quests.map((q) =>
+      q.id === questId ? { ...q, claimed: true } : q
+    );
+    setQuests(updatedQuests);
+    storage.saveQuests(updatedQuests);
+  };
+
+  const handleAddCustomChallenge = (
+    title: string,
+    description: string,
+    targetCount: number,
+    rewardXp: number,
+    rewardCoins: number
+  ) => {
+    const newQuest: Quest = {
+      id: 'quest-custom-' + Date.now(),
+      title,
+      description,
+      targetCount,
+      currentCount: 0,
+      rewardXp,
+      rewardCoins,
+      completed: false,
+      claimed: false,
+      isCustom: true,
+    };
+    const updated = [newQuest, ...quests];
+    setQuests(updated);
+    storage.saveQuests(updated);
+  };
+
+  const handleRedeemReward = (rewardId: string) => {
+    const reward = rewards.find((r) => r.id === rewardId);
+    if (!reward || profile.coins < reward.coinCost) return;
+
+    soundService.playRewardCollect();
+    gamification.triggerConfetti('grand');
+
+    const newProfile = {
+      ...profile,
+      coins: profile.coins - reward.coinCost,
+    };
+    setProfile(newProfile);
+    storage.saveProfile(newProfile);
+
+    const updatedRewards = rewards.map((r) =>
+      r.id === rewardId ? { ...r, redeemedCount: r.redeemedCount + 1 } : r
+    );
+    setRewards(updatedRewards);
+    storage.saveRewards(updatedRewards);
+  };
+
+  const handleAddCustomReward = (title: string, description: string, coinCost: number) => {
+    const newReward: RewardItem = {
+      id: 'reward-custom-' + Date.now(),
+      title,
+      description,
+      coinCost,
+      icon: 'sparkles',
+      redeemedCount: 0,
+      isCustom: true,
+    };
+    const updated = [newReward, ...rewards];
+    setRewards(updated);
+    storage.saveRewards(updated);
   };
 
   const handleSaveSettings = (newSettings: UserSettings) => {
@@ -122,11 +364,12 @@ export const App: React.FC = () => {
       notificationService.cancelDailyReview(newSettings.dailyReviewNotificationId);
     }
 
+    soundService.setEnabled(newSettings.soundEnabled);
     setSettings(newSettings);
     storage.saveSettings(newSettings);
   };
 
-  // Filter tasks based on selected filter
+  // Filter tasks
   const displayedTasks = tasks.filter((t) => {
     if (filter === 'pending') return !t.completed;
     if (filter === 'completed') return t.completed;
@@ -135,9 +378,7 @@ export const App: React.FC = () => {
 
   const totalTasks = tasks.length;
   const completedCount = tasks.filter((t) => t.completed).length;
-  const percentComplete = totalTasks > 0 ? Math.round((completedCount / totalTasks) * 100) : 0;
 
-  // Format today's date
   const todayFormatted = new Intl.DateTimeFormat('en-US', {
     weekday: 'short',
     month: 'short',
@@ -147,18 +388,15 @@ export const App: React.FC = () => {
   return (
     <div className="min-h-full flex flex-col bg-[#050811] text-slate-100 max-w-md mx-auto relative select-none">
       {/* Top Header */}
-      <header className="sticky top-0 z-20 bg-[#050811]/90 backdrop-blur-md border-b border-slate-900 safe-top px-4 pb-3">
-        <div className="flex items-center justify-between mb-3">
+      <header className="sticky top-0 z-20 bg-[#050811]/90 backdrop-blur-md border-b border-slate-900 safe-top px-4 pb-3 space-y-3">
+        <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-xl bg-indigo-600 flex items-center justify-center text-white shadow-md shadow-indigo-600/30">
-              <CheckCircle2 className="w-5 h-5 stroke-[2.5]" />
-            </div>
             <div>
-              <h1 className="text-xl font-bold tracking-tight text-white leading-tight">
-                Daily To-Do
+              <h1 className="text-xl font-black tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-purple-400 via-indigo-300 to-cyan-400 leading-tight">
+                Daily Slayer
               </h1>
               <div className="flex items-center gap-1.5 text-xs text-slate-400 font-medium">
-                <Calendar className="w-3 h-3 text-indigo-400" />
+                <Calendar className="w-3 h-3 text-cyan-400" />
                 <span>{todayFormatted}</span>
               </div>
             </div>
@@ -167,17 +405,15 @@ export const App: React.FC = () => {
           <div className="flex items-center gap-1">
             <button
               onClick={() => setIsHistoryOpen(true)}
-              className="w-10 h-10 rounded-2xl flex items-center justify-center text-slate-400 hover:text-slate-100 hover:bg-slate-900 border border-transparent hover:border-slate-800 transition-colors min-h-[44px] min-w-[44px]"
-              aria-label="Open History"
-              title="Task History"
+              className="w-10 h-10 rounded-2xl flex items-center justify-center text-slate-400 hover:text-slate-100 hover:bg-slate-900 transition-colors min-h-[44px] min-w-[44px]"
+              title="Archive & History"
             >
               <History className="w-5 h-5" />
             </button>
 
             <button
               onClick={() => setIsSettingsOpen(true)}
-              className="w-10 h-10 rounded-2xl flex items-center justify-center text-slate-400 hover:text-slate-100 hover:bg-slate-900 border border-transparent hover:border-slate-800 transition-colors min-h-[44px] min-w-[44px]"
-              aria-label="Open Settings"
+              className="w-10 h-10 rounded-2xl flex items-center justify-center text-slate-400 hover:text-slate-100 hover:bg-slate-900 transition-colors min-h-[44px] min-w-[44px]"
               title="Settings"
             >
               <Settings className="w-5 h-5" />
@@ -185,67 +421,121 @@ export const App: React.FC = () => {
           </div>
         </div>
 
-        {/* Progress & Quick Filters */}
-        <div className="flex items-center justify-between gap-3 pt-1">
-          <div className="flex items-center gap-2 flex-1">
-            <div className="flex-1 h-2 bg-slate-900 rounded-full overflow-hidden border border-slate-800/80">
-              <div
-                className="h-full bg-gradient-to-r from-indigo-500 to-emerald-400 transition-all duration-300"
-                style={{ width: `${percentComplete}%` }}
-              />
-            </div>
-            <span className="text-xs font-semibold text-slate-400 min-w-[48px] text-right">
-              {completedCount}/{totalTasks}
-            </span>
-          </div>
+        {/* Game Stats HUD */}
+        <GameStatsHeader
+          profile={profile}
+          onOpenQuests={() => setIsQuestsOpen(true)}
+          onOpenRewards={() => setIsRewardsOpen(true)}
+        />
 
-          {/* Filter Pills */}
-          <div className="flex items-center bg-slate-900 p-0.5 rounded-xl border border-slate-800 text-xs">
-            {(['all', 'pending', 'completed'] as TaskFilter[]).map((mode) => (
-              <button
-                key={mode}
-                onClick={() => setFilter(mode)}
-                className={`px-2.5 py-1 rounded-lg capitalize font-medium transition-colors ${
-                  filter === mode
-                    ? 'bg-indigo-600 text-white shadow-sm'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                {mode}
-              </button>
-            ))}
-          </div>
+        {/* Tab Navigation: Tasks vs Routines */}
+        <div className="grid grid-cols-2 gap-2 pt-1">
+          <button
+            onClick={() => setMainTab('tasks')}
+            className={`flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-black transition-all ${
+              mainTab === 'tasks'
+                ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-md shadow-purple-600/30'
+                : 'bg-slate-900 text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <CheckSquare className="w-4 h-4" />
+            <span>Daily Tasks ({tasks.length})</span>
+          </button>
+
+          <button
+            onClick={() => setMainTab('routines')}
+            className={`flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-black transition-all ${
+              mainTab === 'routines'
+                ? 'bg-gradient-to-r from-cyan-600 to-indigo-600 text-white shadow-md shadow-cyan-600/30'
+                : 'bg-slate-900 text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Repeat className="w-4 h-4" />
+            <span>Routines ({routines.length})</span>
+          </button>
         </div>
+
+        {/* Task filters if in tasks tab */}
+        {mainTab === 'tasks' && totalTasks > 0 && (
+          <div className="flex items-center justify-between pt-1 text-xs">
+            <span className="text-slate-400 font-semibold">
+              {completedCount}/{totalTasks} Completed
+            </span>
+            <div className="flex items-center bg-slate-900 p-0.5 rounded-xl border border-slate-800">
+              {(['all', 'pending', 'completed'] as TaskFilter[]).map((mode) => (
+                <button
+                  key={mode}
+                  onClick={() => setFilter(mode)}
+                  className={`px-2 py-0.5 rounded-lg capitalize font-bold transition-colors ${
+                    filter === mode
+                      ? 'bg-purple-600 text-white'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  {mode}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </header>
 
-      {/* Main Content Area */}
+      {/* Main Content */}
       <main className="flex-1 px-4 py-4 overflow-y-auto">
-        <TaskList
-          tasks={displayedTasks}
-          onToggleTask={handleToggleTask}
-          onDeleteTask={handleDeleteTask}
-          onClearCompleted={completedCount > 0 ? handleClearCompleted : undefined}
-        />
+        {mainTab === 'tasks' ? (
+          <TaskList
+            tasks={displayedTasks}
+            onToggleTask={handleToggleTask}
+            onDeleteTask={handleDeleteTask}
+            onClearCompleted={completedCount > 0 ? handleClearCompleted : undefined}
+          />
+        ) : (
+          <RoutineList
+            routines={routines}
+            onCompleteRoutine={handleCompleteRoutine}
+            onDeleteRoutine={handleDeleteRoutine}
+            onAddRoutine={handleAddRoutine}
+          />
+        )}
       </main>
 
-      {/* Floating Bottom Task Input */}
-      <div className="fixed bottom-0 left-0 right-0 z-30 p-4 safe-bottom bg-gradient-to-t from-[#050811] via-[#050811]/90 to-transparent pointer-events-none">
-        <div className="max-w-md mx-auto pointer-events-auto">
-          <TaskInput onAddTask={handleAddTask} />
+      {/* Bottom Task Input (active only when in Tasks tab) */}
+      {mainTab === 'tasks' && (
+        <div className="fixed bottom-0 left-0 right-0 z-30 p-4 safe-bottom bg-gradient-to-t from-[#050811] via-[#050811]/90 to-transparent pointer-events-none">
+          <div className="max-w-md mx-auto pointer-events-auto">
+            <TaskInput onAddTask={handleAddTask} />
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Modals */}
-      <SettingsModal
-        isOpen={isSettingsOpen}
-        onClose={() => setIsSettingsOpen(false)}
-        settings={settings}
-        onSaveSettings={handleSaveSettings}
+      <QuestsModal
+        isOpen={isQuestsOpen}
+        onClose={() => setIsQuestsOpen(false)}
+        quests={quests}
+        onClaimQuest={handleClaimQuest}
+        onAddCustomChallenge={handleAddCustomChallenge}
+      />
+
+      <RewardsVaultModal
+        isOpen={isRewardsOpen}
+        onClose={() => setIsRewardsOpen(false)}
+        userCoins={profile.coins}
+        rewards={rewards}
+        onRedeemReward={handleRedeemReward}
+        onAddCustomReward={handleAddCustomReward}
       />
 
       <HistoryModal
         isOpen={isHistoryOpen}
         onClose={() => setIsHistoryOpen(false)}
+      />
+
+      <SettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        settings={settings}
+        onSaveSettings={handleSaveSettings}
       />
     </div>
   );
