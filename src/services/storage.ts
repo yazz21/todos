@@ -1,4 +1,4 @@
-import type { Task, Routine, UserProfile, Quest, RewardItem, UserSettings } from '../types';
+import type { Task, Routine, UserProfile, Quest, RewardItem, UserSettings, HistoryItem } from '../types';
 import { DEFAULT_PROFILE, DEFAULT_REWARDS, gamification } from './gamification';
 
 const TASKS_STORAGE_KEY = 'daily_todo_tasks_v2';
@@ -6,7 +6,7 @@ const ROUTINES_STORAGE_KEY = 'daily_todo_routines_v2';
 const PROFILE_STORAGE_KEY = 'daily_todo_profile_v2';
 const QUESTS_STORAGE_KEY = 'daily_todo_quests_v2';
 const REWARDS_STORAGE_KEY = 'daily_todo_rewards_v2';
-const HISTORY_STORAGE_KEY = 'daily_todo_history_v2';
+const HISTORY_ITEMS_STORAGE_KEY = 'daily_todo_history_items_v2';
 const SETTINGS_STORAGE_KEY = 'daily_todo_settings_v2';
 
 export const DEFAULT_SETTINGS: UserSettings = {
@@ -46,7 +46,6 @@ export const storage = {
     try {
       const data = localStorage.getItem(ROUTINES_STORAGE_KEY);
       if (!data) {
-        // Provide starter routines for first time
         const defaultRoutines: Routine[] = [
           {
             id: 'routine-water',
@@ -77,7 +76,7 @@ export const storage = {
             id: 'routine-review',
             title: 'Weekly Wins & Reflection',
             interval: 'weekly',
-            dayOfWeek: 0, // Sunday
+            dayOfWeek: 0,
             timeOfDay: '18:00',
             nextDueAt: Date.now() + 7 * 86400000,
             completedCount: 0,
@@ -123,11 +122,10 @@ export const storage = {
       }
       return now + 24 * 60 * 60 * 1000;
     }
-    // Weekly
     return now + 7 * 24 * 60 * 60 * 1000;
   },
 
-  // USER PROFILE & GAMIFICATION
+  // USER PROFILE
   loadProfile(): UserProfile {
     try {
       const data = localStorage.getItem(PROFILE_STORAGE_KEY);
@@ -194,24 +192,59 @@ export const storage = {
     }
   },
 
-  // HISTORY
-  loadHistory(): Task[] {
+  // UNIFIED AUDIT HISTORY (COMPLETED & SOFT-DELETED TASKS & ROUTINES)
+  loadHistoryItems(): HistoryItem[] {
     try {
-      const data = localStorage.getItem(HISTORY_STORAGE_KEY);
+      const data = localStorage.getItem(HISTORY_ITEMS_STORAGE_KEY);
       if (!data) return [];
       return JSON.parse(data);
     } catch (e) {
-      console.error('Failed to load history', e);
+      console.error('Failed to load history items', e);
       return [];
     }
   },
 
-  saveHistory(history: Task[]): void {
+  saveHistoryItems(items: HistoryItem[]): void {
     try {
-      localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(history));
+      localStorage.setItem(HISTORY_ITEMS_STORAGE_KEY, JSON.stringify(items));
     } catch (e) {
-      console.error('Failed to save history', e);
+      console.error('Failed to save history items', e);
     }
+  },
+
+  recordHistoryEvent(
+    originalId: string,
+    itemType: 'task' | 'routine',
+    title: string,
+    status: 'completed' | 'deleted',
+    extra?: { interval?: Routine['interval']; targetTime?: string; xpEarned?: number }
+  ): HistoryItem {
+    const newItem: HistoryItem = {
+      id: 'hist-' + Date.now().toString(36) + Math.random().toString(36).substring(2, 6),
+      originalId,
+      itemType,
+      title,
+      status,
+      timestamp: Date.now(),
+      interval: extra?.interval,
+      targetTime: extra?.targetTime,
+      xpEarned: extra?.xpEarned,
+    };
+
+    const current = this.loadHistoryItems();
+    const updated = [newItem, ...current];
+    this.saveHistoryItems(updated);
+    return newItem;
+  },
+
+  deleteHistoryItemStrict(id: string): void {
+    const current = this.loadHistoryItems();
+    const updated = current.filter((item) => item.id !== id);
+    this.saveHistoryItems(updated);
+  },
+
+  clearHistoryItemsStrict(): void {
+    this.saveHistoryItems([]);
   },
 
   archiveCompletedTasks(currentTasks: Task[]): { remainingActive: Task[]; archivedCount: number } {
@@ -220,21 +253,18 @@ export const storage = {
       return { remainingActive: currentTasks, archivedCount: 0 };
     }
 
-    const now = Date.now();
-    const newlyArchived: Task[] = toArchive.map((t) => ({
-      ...t,
-      archived: true,
-      archivedAt: now,
-    }));
-
-    const existingHistory = this.loadHistory();
-    const updatedHistory = [...newlyArchived, ...existingHistory];
-    this.saveHistory(updatedHistory);
+    // Ensure all toArchive items are recorded in history
+    toArchive.forEach((t) => {
+      this.recordHistoryEvent(t.id, 'task', t.title, 'completed', {
+        targetTime: t.targetTime,
+        xpEarned: t.xpReward || 25,
+      });
+    });
 
     const remainingActive = currentTasks.filter((t) => !t.completed);
     this.saveTasks(remainingActive);
 
-    return { remainingActive, archivedCount: newlyArchived.length };
+    return { remainingActive, archivedCount: toArchive.length };
   },
 
   // SETTINGS
@@ -313,7 +343,6 @@ export const storage = {
       lastActiveDate: today,
     };
 
-    // Refresh daily quests on day rollover
     const refreshedQuests = gamification.getDefaultDailyQuests();
 
     this.saveTasks(updatedTasks);

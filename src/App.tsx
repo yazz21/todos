@@ -148,6 +148,15 @@ export const App: React.FC = () => {
     storage.saveTasks(updated);
 
     if (newlyCompleted) {
+      // Record completed event in history
+      const completedItem = tasks.find((t) => t.id === id);
+      if (completedItem) {
+        storage.recordHistoryEvent(completedItem.id, 'task', completedItem.title, 'completed', {
+          targetTime: completedItem.targetTime,
+          xpEarned: earnedXp,
+        });
+      }
+
       // Trigger dopamine feedback!
       soundService.playTaskComplete();
       gamification.triggerConfetti('small');
@@ -177,9 +186,16 @@ export const App: React.FC = () => {
 
   const handleDeleteTask = async (id: string) => {
     const taskToDelete = tasks.find((t) => t.id === id);
-    if (taskToDelete?.notificationId) {
-      await notificationService.cancelTaskReminder(taskToDelete.notificationId);
+    if (taskToDelete) {
+      if (taskToDelete.notificationId) {
+        await notificationService.cancelTaskReminder(taskToDelete.notificationId);
+      }
+      // Record soft delete event in history
+      storage.recordHistoryEvent(taskToDelete.id, 'task', taskToDelete.title, 'deleted', {
+        targetTime: taskToDelete.targetTime,
+      });
     }
+
     const updated = tasks.filter((t) => t.id !== id);
     setTasks(updated);
     storage.saveTasks(updated);
@@ -188,6 +204,18 @@ export const App: React.FC = () => {
   const handleClearCompleted = () => {
     const { remainingActive } = storage.archiveCompletedTasks(tasks);
     setTasks(remainingActive);
+  };
+
+  const handleRestoreTask = (task: Task) => {
+    const updated = [task, ...tasks];
+    setTasks(updated);
+    storage.saveTasks(updated);
+  };
+
+  const handleRestoreRoutine = (routine: Routine) => {
+    const updated = [...routines, routine];
+    setRoutines(updated);
+    storage.saveRoutines(updated);
   };
 
   // ROUTINE ACTIONS
@@ -214,6 +242,14 @@ export const App: React.FC = () => {
   const handleCompleteRoutine = (id: string) => {
     let earnedXp = 35;
     let earnedCoins = 15;
+
+    const struckRoutine = routines.find((r) => r.id === id);
+    if (struckRoutine) {
+      storage.recordHistoryEvent(struckRoutine.id, 'routine', struckRoutine.title, 'completed', {
+        interval: struckRoutine.interval,
+        xpEarned: struckRoutine.xpReward,
+      });
+    }
 
     const updated = routines.map((r) => {
       if (r.id === id) {
@@ -260,6 +296,13 @@ export const App: React.FC = () => {
   };
 
   const handleDeleteRoutine = (id: string) => {
+    const routineToDelete = routines.find((r) => r.id === id);
+    if (routineToDelete) {
+      storage.recordHistoryEvent(routineToDelete.id, 'routine', routineToDelete.title, 'deleted', {
+        interval: routineToDelete.interval,
+      });
+    }
+
     const updated = routines.filter((r) => r.id !== id);
     setRoutines(updated);
     storage.saveRoutines(updated);
@@ -529,6 +572,8 @@ export const App: React.FC = () => {
       <HistoryModal
         isOpen={isHistoryOpen}
         onClose={() => setIsHistoryOpen(false)}
+        onRestoreTask={handleRestoreTask}
+        onRestoreRoutine={handleRestoreRoutine}
       />
 
       <SettingsModal

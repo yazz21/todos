@@ -77,5 +77,20 @@ export interface UserSettings {
   vibrationEnabled: boolean;
 }
 
+export type HistoryItemType = 'task' | 'routine';
+export type HistoryItemStatus = 'completed' | 'deleted';
+
+export interface HistoryItem {
+  id: string;
+  originalId: string;
+  itemType: HistoryItemType;
+  title: string;
+  status: HistoryItemStatus;
+  timestamp: number;
+  interval?: RoutineInterval;
+  targetTime?: string;
+  xpEarned?: number;
+}
+
 export type MainTab = 'tasks' | 'routines' | 'quests' | 'rewards';
 export type TaskFilter = 'all' | 'pending' | 'completed';
