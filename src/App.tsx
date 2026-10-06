@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import type { Task, Routine, RoutineInterval, UserProfile, Quest, RewardItem, UserSettings, MainTab, TaskFilter } from './types';
+import type { Task, Routine, RoutineInterval, UserProfile, Quest, RewardItem, UserSettings, MainTab, TaskFilter, LessonPlan } from './types';
 import { storage } from './services/storage';
 import { notificationService } from './services/notifications';
 import { soundService } from './services/sound';
@@ -7,12 +7,14 @@ import { gamification } from './services/gamification';
 import { TaskInput } from './components/TaskInput';
 import { TaskList } from './components/TaskList';
 import { RoutineList } from './components/RoutineList';
+import { SkillLearningList } from './components/SkillLearningList';
 import { GameStatsHeader } from './components/GameStatsHeader';
 import { QuestsModal } from './components/QuestsModal';
 import { RewardsVaultModal } from './components/RewardsVaultModal';
+import { LessonPlanImportModal } from './components/LessonPlanImportModal';
 import { SettingsModal } from './components/SettingsModal';
 import { HistoryModal } from './components/HistoryModal';
-import { Settings, History, CheckSquare, Repeat, Calendar } from 'lucide-react';
+import { Settings, History, CheckSquare, Repeat, Calendar, GraduationCap } from 'lucide-react';
 
 export const App: React.FC = () => {
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -25,10 +27,12 @@ export const App: React.FC = () => {
   const [mainTab, setMainTab] = useState<MainTab>('tasks');
   const [filter, setFilter] = useState<TaskFilter>('all');
 
+  const [lessonPlans, setLessonPlans] = useState<LessonPlan[]>([]);
   const [isQuestsOpen, setIsQuestsOpen] = useState(false);
   const [isRewardsOpen, setIsRewardsOpen] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
 
   // Initialize and check day rollover
   useEffect(() => {
@@ -46,6 +50,7 @@ export const App: React.FC = () => {
     setQuests(updatedQuests);
     setRoutines(storage.loadRoutines());
     setRewards(storage.loadRewards());
+    setLessonPlans(storage.loadLessonPlans());
 
     soundService.setEnabled(updatedSettings.soundEnabled);
 
@@ -308,6 +313,81 @@ export const App: React.FC = () => {
     storage.saveRoutines(updated);
   };
 
+  // LESSON & LEARNING ACTIONS
+  const handleToggleLesson = (planId: string, lessonId: string) => {
+    let earnedXp = 50;
+    let earnedCoins = 20;
+    let newlyCompleted = false;
+
+    const updatedPlans = lessonPlans.map((plan) => {
+      if (plan.id === planId) {
+        const updatedLessons = plan.lessons.map((lesson) => {
+          if (lesson.id === lessonId) {
+            const nextCompleted = !lesson.completed;
+            if (nextCompleted) {
+              newlyCompleted = true;
+              earnedXp = lesson.xpReward || 50;
+              earnedCoins = lesson.coinReward || 20;
+            }
+            return {
+              ...lesson,
+              completed: nextCompleted,
+              completedAt: nextCompleted ? Date.now() : undefined,
+            };
+          }
+          return lesson;
+        });
+        return { ...plan, lessons: updatedLessons };
+      }
+      return plan;
+    });
+
+    setLessonPlans(updatedPlans);
+    storage.saveLessonPlans(updatedPlans);
+
+    if (newlyCompleted) {
+      soundService.playTaskComplete();
+      gamification.triggerConfetti('small');
+
+      const targetPlan = lessonPlans.find((p) => p.id === planId);
+      const targetLesson = targetPlan?.lessons.find((l) => l.id === lessonId);
+      if (targetLesson) {
+        storage.recordHistoryEvent(targetLesson.id, 'lesson', targetLesson.title, 'completed', {
+          xpEarned: earnedXp,
+        });
+      }
+
+      const { updated: newProfile, didLevelUp } = gamification.addExperience(
+        profile,
+        earnedXp,
+        earnedCoins
+      );
+      if (didLevelUp) {
+        soundService.playLevelUp();
+        gamification.triggerConfetti('grand');
+      }
+      setProfile(newProfile);
+      storage.saveProfile(newProfile);
+    }
+  };
+
+  const handleDeletePlan = (planId: string) => {
+    const target = lessonPlans.find((p) => p.id === planId);
+    if (target) {
+      storage.recordHistoryEvent(target.id, 'lesson', target.title, 'deleted');
+    }
+    const updated = lessonPlans.filter((p) => p.id !== planId);
+    setLessonPlans(updated);
+    storage.saveLessonPlans(updated);
+  };
+
+  const handleImportSuccess = (newPlan: LessonPlan) => {
+    soundService.playRewardCollect();
+    gamification.triggerConfetti('grand');
+    const updated = [newPlan, ...lessonPlans];
+    setLessonPlans(updated);
+  };
+
   // QUESTS & REWARDS
   const handleClaimQuest = (questId: string) => {
     const quest = quests.find((q) => q.id === questId);
@@ -471,30 +551,42 @@ export const App: React.FC = () => {
           onOpenRewards={() => setIsRewardsOpen(true)}
         />
 
-        {/* Tab Navigation: Tasks vs Routines */}
-        <div className="grid grid-cols-2 gap-2 pt-1">
+        {/* Tab Navigation: Tasks vs Routines vs Learning */}
+        <div className="grid grid-cols-3 gap-1.5 pt-1">
           <button
             onClick={() => setMainTab('tasks')}
-            className={`flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-black transition-all ${
+            className={`flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-black transition-all ${
               mainTab === 'tasks'
                 ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-md shadow-purple-600/30'
                 : 'bg-slate-900 text-slate-400 hover:text-slate-200'
             }`}
           >
-            <CheckSquare className="w-4 h-4" />
-            <span>Daily Tasks ({tasks.length})</span>
+            <CheckSquare className="w-3.5 h-3.5" />
+            <span>Tasks ({tasks.length})</span>
           </button>
 
           <button
             onClick={() => setMainTab('routines')}
-            className={`flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-black transition-all ${
+            className={`flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-black transition-all ${
               mainTab === 'routines'
                 ? 'bg-gradient-to-r from-cyan-600 to-indigo-600 text-white shadow-md shadow-cyan-600/30'
                 : 'bg-slate-900 text-slate-400 hover:text-slate-200'
             }`}
           >
-            <Repeat className="w-4 h-4" />
+            <Repeat className="w-3.5 h-3.5" />
             <span>Routines ({routines.length})</span>
+          </button>
+
+          <button
+            onClick={() => setMainTab('learning')}
+            className={`flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-black transition-all ${
+              mainTab === 'learning'
+                ? 'bg-gradient-to-r from-amber-500 to-yellow-500 text-slate-950 shadow-md shadow-amber-500/30 font-black'
+                : 'bg-slate-900 text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <GraduationCap className="w-3.5 h-3.5" />
+            <span>Learning ({lessonPlans.length})</span>
           </button>
         </div>
 
@@ -532,12 +624,19 @@ export const App: React.FC = () => {
             onDeleteTask={handleDeleteTask}
             onClearCompleted={completedCount > 0 ? handleClearCompleted : undefined}
           />
-        ) : (
+        ) : mainTab === 'routines' ? (
           <RoutineList
             routines={routines}
             onCompleteRoutine={handleCompleteRoutine}
             onDeleteRoutine={handleDeleteRoutine}
             onAddRoutine={handleAddRoutine}
+          />
+        ) : (
+          <SkillLearningList
+            plans={lessonPlans}
+            onToggleLesson={handleToggleLesson}
+            onDeletePlan={handleDeletePlan}
+            onOpenImport={() => setIsImportModalOpen(true)}
           />
         )}
       </main>
@@ -552,6 +651,12 @@ export const App: React.FC = () => {
       )}
 
       {/* Modals */}
+      <LessonPlanImportModal
+        isOpen={isImportModalOpen}
+        onClose={() => setIsImportModalOpen(false)}
+        onImportSuccess={handleImportSuccess}
+      />
+
       <QuestsModal
         isOpen={isQuestsOpen}
         onClose={() => setIsQuestsOpen(false)}

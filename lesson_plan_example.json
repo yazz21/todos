@@ -1,0 +1,58 @@
+{
+  "title": "Full-Stack AI Application Development",
+  "category": "Software Engineering",
+  "cadence": "daily",
+  "description": "A comprehensive hands-on curriculum to build modern AI-powered web applications from scratch.",
+  "lessons": [
+    {
+      "title": "Day 1: TypeScript 5.8 & Advanced Type Systems",
+      "description": "Master discriminated unions, type narrowing, and strict module resolution.",
+      "cadenceStep": 1,
+      "xpReward": 50,
+      "coinReward": 20,
+      "resources": [
+        "https://www.typescriptlang.org/docs/handbook/2/types-from-types.html"
+      ]
+    },
+    {
+      "title": "Day 2: React 19 Actions & Optimistic State",
+      "description": "Implement form actions, useOptimistic, and high-performance re-rendering patterns.",
+      "cadenceStep": 2,
+      "xpReward": 50,
+      "coinReward": 20,
+      "resources": [
+        "https://react.dev/reference/react/useOptimistic"
+      ]
+    },
+    {
+      "title": "Day 3: Embeddings & Vector Similarity Search",
+      "description": "Understand high-dimensional vector spaces, cosine distance, and in-memory indexing.",
+      "cadenceStep": 3,
+      "xpReward": 50,
+      "coinReward": 20,
+      "resources": [
+        "Vector Search Fundamentals Guide"
+      ]
+    },
+    {
+      "title": "Day 4: LLM Function Calling & Tool Orchestration",
+      "description": "Build an autonomous agent with schema-based tools and structured JSON responses.",
+      "cadenceStep": 4,
+      "xpReward": 60,
+      "coinReward": 25,
+      "resources": [
+        "Structured Outputs & Function Calling Specs"
+      ]
+    },
+    {
+      "title": "Day 5: Capstone Project Deployment & Offline Sync",
+      "description": "Package the application into an Android mobile APK with offline-first persistence.",
+      "cadenceStep": 5,
+      "xpReward": 100,
+      "coinReward": 50,
+      "resources": [
+        "Capacitor Offline Guides"
+      ]
+    }
+  ]
+}

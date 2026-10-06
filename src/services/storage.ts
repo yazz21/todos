@@ -1,8 +1,9 @@
-import type { Task, Routine, UserProfile, Quest, RewardItem, UserSettings, HistoryItem } from '../types';
+import type { Task, Routine, UserProfile, Quest, RewardItem, UserSettings, HistoryItem, HistoryItemType, LessonPlan, Lesson, Cadence } from '../types';
 import { DEFAULT_PROFILE, DEFAULT_REWARDS, gamification } from './gamification';
 
 const TASKS_STORAGE_KEY = 'daily_todo_tasks_v2';
 const ROUTINES_STORAGE_KEY = 'daily_todo_routines_v2';
+const LESSON_PLANS_STORAGE_KEY = 'daily_todo_lesson_plans_v2';
 const PROFILE_STORAGE_KEY = 'daily_todo_profile_v2';
 const QUESTS_STORAGE_KEY = 'daily_todo_quests_v2';
 const REWARDS_STORAGE_KEY = 'daily_todo_rewards_v2';
@@ -125,6 +126,119 @@ export const storage = {
     return now + 7 * 24 * 60 * 60 * 1000;
   },
 
+  // LESSON PLANS & SKILLS
+  loadLessonPlans(): LessonPlan[] {
+    try {
+      const data = localStorage.getItem(LESSON_PLANS_STORAGE_KEY);
+      if (!data) {
+        const starter: LessonPlan[] = [
+          {
+            id: 'course-ai-dev',
+            title: 'Full-Stack AI Application Development',
+            description: 'Hands-on curriculum to build modern AI web apps from scratch.',
+            category: 'Software Engineering',
+            cadence: 'daily',
+            createdAt: Date.now(),
+            lessons: [
+              {
+                id: 'les-1',
+                title: 'Day 1: TypeScript 5.8 & Advanced Type Systems',
+                description: 'Master discriminated unions, type narrowing, and strict module resolution.',
+                cadence: 'daily',
+                cadenceStep: 1,
+                completed: false,
+                xpReward: 50,
+                coinReward: 20,
+              },
+              {
+                id: 'les-2',
+                title: 'Day 2: React 19 Actions & Optimistic State',
+                description: 'Implement form actions, useOptimistic, and high-performance patterns.',
+                cadence: 'daily',
+                cadenceStep: 2,
+                completed: false,
+                xpReward: 50,
+                coinReward: 20,
+              },
+              {
+                id: 'les-3',
+                title: 'Day 3: Embeddings & Vector Similarity Search',
+                description: 'Understand vector spaces, cosine distance, and in-memory indexing.',
+                cadence: 'daily',
+                cadenceStep: 3,
+                completed: false,
+                xpReward: 50,
+                coinReward: 20,
+              },
+            ],
+          },
+        ];
+        this.saveLessonPlans(starter);
+        return starter;
+      }
+      return JSON.parse(data);
+    } catch (e) {
+      console.error('Failed to load lesson plans', e);
+      return [];
+    }
+  },
+
+  saveLessonPlans(plans: LessonPlan[]): void {
+    try {
+      localStorage.setItem(LESSON_PLANS_STORAGE_KEY, JSON.stringify(plans));
+    } catch (e) {
+      console.error('Failed to save lesson plans', e);
+    }
+  },
+
+  importLessonPlanFromJSON(rawJson: string): { success: boolean; plan?: LessonPlan; error?: string } {
+    try {
+      const parsed = JSON.parse(rawJson);
+      if (!parsed || typeof parsed !== 'object') {
+        return { success: false, error: 'JSON must be an object' };
+      }
+      if (!parsed.title || typeof parsed.title !== 'string') {
+        return { success: false, error: 'Missing required field: "title"' };
+      }
+      if (!Array.isArray(parsed.lessons) || parsed.lessons.length === 0) {
+        return { success: false, error: '"lessons" must be a non-empty array' };
+      }
+
+      const cadence = (['daily', 'weekly', 'monthly'].includes(parsed.cadence) ? parsed.cadence : 'daily') as Cadence;
+
+      const formattedLessons: Lesson[] = parsed.lessons.map((item: any, idx: number) => ({
+        id: 'lesson-' + Date.now().toString(36) + '-' + idx,
+        title: String(item.title || `Lesson ${idx + 1}`),
+        description: item.description ? String(item.description) : undefined,
+        cadence: item.cadence || cadence,
+        cadenceStep: typeof item.cadenceStep === 'number' ? item.cadenceStep : idx + 1,
+        completed: Boolean(item.completed),
+        completedAt: item.completedAt,
+        xpReward: typeof item.xpReward === 'number' ? item.xpReward : 50,
+        coinReward: typeof item.coinReward === 'number' ? item.coinReward : 20,
+        resources: Array.isArray(item.resources) ? item.resources.map(String) : undefined,
+      }));
+
+      const newPlan: LessonPlan = {
+        id: 'plan-' + Date.now().toString(36) + Math.random().toString(36).substring(2, 6),
+        title: parsed.title,
+        description: parsed.description ? String(parsed.description) : undefined,
+        category: parsed.category ? String(parsed.category) : undefined,
+        cadence,
+        lessons: formattedLessons,
+        createdAt: Date.now(),
+      };
+
+      const existing = this.loadLessonPlans();
+      const updated = [newPlan, ...existing];
+      this.saveLessonPlans(updated);
+
+      return { success: true, plan: newPlan };
+    } catch (e) {
+      return { success: false, error: e instanceof Error ? e.message : 'Invalid JSON format' };
+    }
+  },
+
   // USER PROFILE
   loadProfile(): UserProfile {
     try {
@@ -214,7 +328,7 @@ export const storage = {
 
   recordHistoryEvent(
     originalId: string,
-    itemType: 'task' | 'routine',
+    itemType: HistoryItemType,
     title: string,
     status: 'completed' | 'deleted',
     extra?: { interval?: Routine['interval']; targetTime?: string; xpEarned?: number }

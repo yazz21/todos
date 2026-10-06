@@ -33,6 +33,31 @@ export interface Routine {
   createdAt: number;
 }
 
+export type Cadence = 'daily' | 'weekly' | 'monthly';
+
+export interface Lesson {
+  id: string;
+  title: string;
+  description?: string;
+  cadence?: Cadence;
+  cadenceStep?: number; // e.g., Day 1, Week 2, Month 1
+  completed: boolean;
+  completedAt?: number;
+  xpReward: number; // default 50
+  coinReward: number; // default 20
+  resources?: string[];
+}
+
+export interface LessonPlan {
+  id: string;
+  title: string;
+  description?: string;
+  category?: string; // e.g., "Programming", "Language", "Design"
+  cadence: Cadence; // 'daily' | 'weekly' | 'monthly'
+  lessons: Lesson[];
+  createdAt: number;
+}
+
 export interface UserProfile {
   level: number;
   currentXp: number;
@@ -42,6 +67,7 @@ export interface UserProfile {
   lastActiveDate: string; // YYYY-MM-DD
   totalCompletedTasks: number;
   totalCompletedRoutines: number;
+  totalCompletedLessons?: number;
 }
 
 export interface Quest {
@@ -77,7 +103,7 @@ export interface UserSettings {
   vibrationEnabled: boolean;
 }
 
-export type HistoryItemType = 'task' | 'routine';
+export type HistoryItemType = 'task' | 'routine' | 'lesson';
 export type HistoryItemStatus = 'completed' | 'deleted';
 
 export interface HistoryItem {
@@ -92,5 +118,5 @@ export interface HistoryItem {
   xpEarned?: number;
 }
 
-export type MainTab = 'tasks' | 'routines' | 'quests' | 'rewards';
+export type MainTab = 'tasks' | 'routines' | 'learning';
 export type TaskFilter = 'all' | 'pending' | 'completed';
