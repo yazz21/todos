@@ -13,7 +13,8 @@ import {
   Clock,
   Repeat,
   CheckSquare,
-  AlertOctagon,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 
 interface HistoryModalProps {
@@ -22,6 +23,8 @@ interface HistoryModalProps {
   onRestoreTask?: (task: Task) => void;
   onRestoreRoutine?: (routine: Routine) => void;
 }
+
+const ITEMS_PER_PAGE = 8;
 
 export const HistoryModal: React.FC<HistoryModalProps> = ({
   isOpen,
@@ -32,13 +35,19 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
   const [historyItems, setHistoryItems] = useState<HistoryItem[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<string>('all'); // 'all' | 'completed' | 'deleted' | 'task' | 'routine'
+  const [currentPage, setCurrentPage] = useState<number>(1);
 
   useEffect(() => {
     if (isOpen) {
       setHistoryItems(storage.loadHistoryItems());
       setSearchQuery('');
+      setCurrentPage(1);
     }
   }, [isOpen]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, filterType]);
 
   if (!isOpen) return null;
 
@@ -46,7 +55,12 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
     e.stopPropagation();
     if (window.confirm('Strictly delete this item permanently from history?')) {
       storage.deleteHistoryItemStrict(id);
-      setHistoryItems(storage.loadHistoryItems());
+      const updated = storage.loadHistoryItems();
+      setHistoryItems(updated);
+      const maxPages = Math.max(1, Math.ceil(updated.length / ITEMS_PER_PAGE));
+      if (currentPage > maxPages) {
+        setCurrentPage(maxPages);
+      }
     }
   };
 
@@ -54,6 +68,7 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
     if (window.confirm('Strictly wipe all history items permanently? This cannot be undone.')) {
       storage.clearHistoryItemsStrict();
       setHistoryItems([]);
+      setCurrentPage(1);
     }
   };
 
@@ -90,7 +105,12 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
 
     // Remove from history after restoring
     storage.deleteHistoryItemStrict(item.id);
-    setHistoryItems(storage.loadHistoryItems());
+    const updated = storage.loadHistoryItems();
+    setHistoryItems(updated);
+    const maxPages = Math.max(1, Math.ceil(updated.length / ITEMS_PER_PAGE));
+    if (currentPage > maxPages) {
+      setCurrentPage(maxPages);
+    }
   };
 
   const handleExportJSON = () => {
@@ -134,6 +154,10 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
     return true;
   });
 
+  const totalPages = Math.max(1, Math.ceil(filteredItems.length / ITEMS_PER_PAGE));
+  const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+  const paginatedItems = filteredItems.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-950/80 backdrop-blur-sm transition-all animate-in fade-in duration-200">
       <div className="w-full sm:max-w-md h-[88vh] sm:h-[82vh] flex flex-col bg-slate-900 border-t sm:border border-slate-800 rounded-t-3xl sm:rounded-3xl shadow-2xl safe-bottom animate-in slide-in-from-bottom-6 duration-200">
@@ -145,7 +169,7 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
               <History className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-base font-black text-slate-100">Audit & Soft Delete History</h3>
+              <h3 className="text-base font-black text-slate-100">History & Archive</h3>
               <p className="text-xs text-slate-400">
                 {historyItems.length} records preserved with day & time
               </p>
@@ -223,7 +247,7 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
               </p>
             </div>
           ) : (
-            filteredItems.map((item) => {
+            paginatedItems.map((item) => {
               const isCompleted = item.status === 'completed';
 
               return (
@@ -234,26 +258,13 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
                   <div className="flex items-start justify-between gap-2">
                     <div className="space-y-1">
                       <div className="flex flex-wrap items-center gap-1.5">
-                        {/* Status Badge */}
-                        <span
-                          className={`inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md border ${
-                            isCompleted
-                              ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
-                              : 'bg-rose-500/15 text-rose-300 border-rose-500/30'
-                          }`}
-                        >
-                          {isCompleted ? (
-                            <>
-                              <CheckCircle2 className="w-3 h-3 text-emerald-400" />
-                              Completed
-                            </>
-                          ) : (
-                            <>
-                              <AlertOctagon className="w-3 h-3 text-rose-400" />
-                              Soft Deleted
-                            </>
-                          )}
-                        </span>
+                        {/* Status Badge: only for completed, no text for soft-deleted */}
+                        {isCompleted && (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md border bg-emerald-500/15 text-emerald-300 border-emerald-500/30">
+                            <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                            Completed
+                          </span>
+                        )}
 
                         {/* Item Type Badge */}
                         <span className="inline-flex items-center gap-1 text-[10px] font-bold text-slate-400 bg-slate-800 px-1.5 py-0.5 rounded border border-slate-700">
@@ -282,7 +293,7 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
                       {item.status === 'deleted' && (
                         <button
                           onClick={(e) => handleRestore(item, e)}
-                          className="flex items-center gap-1 text-[11px] font-bold text-cyan-400 hover:text-cyan-300 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/20 px-2 py-1 rounded-lg transition-colors"
+                          className="flex items-center gap-1 text-[11px] font-bold text-cyan-400 hover:text-cyan-300 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/20 px-2.5 py-1 rounded-lg transition-colors"
                           title="Restore to active view"
                         >
                           <RotateCcw className="w-3 h-3" />
@@ -321,6 +332,36 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
             })
           )}
         </div>
+
+        {/* Pagination Footer */}
+        {totalPages > 1 && (
+          <div className="p-3 border-t border-slate-800/80 bg-slate-900/90 flex items-center justify-between">
+            <span className="text-xs text-slate-400 font-medium">
+              Page {currentPage} of {totalPages} ({filteredItems.length} records)
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                disabled={currentPage === 1}
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold disabled:opacity-30 disabled:cursor-not-allowed transition-all min-h-[36px]"
+              >
+                <ChevronLeft className="w-4 h-4" />
+                Prev
+              </button>
+              <span className="text-xs font-black text-indigo-400 px-1">
+                {currentPage}
+              </span>
+              <button
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                disabled={currentPage === totalPages}
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold disabled:opacity-30 disabled:cursor-not-allowed transition-all min-h-[36px]"
+              >
+                Next
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        )}
 
       </div>
     </div>
