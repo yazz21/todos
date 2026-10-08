@@ -55,7 +55,9 @@ export const App: React.FC = () => {
     soundService.setEnabled(updatedSettings.soundEnabled);
 
     // Initialize notification channels
-    notificationService.initChannel();
+    notificationService.initChannel().then(() => {
+      notificationService.requestPermission();
+    });
 
     if (updatedSettings.dailyReviewEnabled) {
       notificationService.scheduleDailyReview(
@@ -88,6 +90,7 @@ export const App: React.FC = () => {
   // TASK ACTIONS
   const handleAddTask = async (
     title: string,
+    description?: string,
     targetTime?: string,
     reminderEnabled?: boolean
   ) => {
@@ -101,6 +104,7 @@ export const App: React.FC = () => {
     const newTask: Task = {
       id: Date.now().toString(36) + Math.random().toString(36).substring(2, 6),
       title,
+      description,
       completed: false,
       targetTime,
       targetDate: todayStr,
@@ -223,13 +227,57 @@ export const App: React.FC = () => {
     storage.saveRoutines(updated);
   };
 
+  const handleEditTask = async (
+    id: string,
+    title: string,
+    description?: string,
+    targetTime?: string,
+    reminderEnabled?: boolean
+  ) => {
+    const updated = tasks.map((task) => {
+      if (task.id === id) {
+        let notificationId = task.notificationId;
+        
+        if (task.reminderEnabled && task.notificationId && (!reminderEnabled || task.targetTime !== targetTime)) {
+          notificationService.cancelTaskReminder(task.notificationId);
+        }
+        
+        if (reminderEnabled && (!task.reminderEnabled || task.targetTime !== targetTime)) {
+          if (!notificationId) notificationId = storage.generateNotificationId();
+        } else if (!reminderEnabled) {
+          notificationId = undefined;
+        }
+
+        return {
+          ...task,
+          title,
+          description,
+          targetTime,
+          reminderEnabled: !!reminderEnabled,
+          notificationId,
+        };
+      }
+      return task;
+    });
+
+    const editedTask = updated.find(t => t.id === id);
+    if (editedTask && editedTask.reminderEnabled && editedTask.notificationId && (!tasks.find(t => t.id === id)?.reminderEnabled || tasks.find(t => t.id === id)?.targetTime !== targetTime)) {
+        notificationService.scheduleTaskReminder(editedTask);
+    }
+
+    setTasks(updated);
+    storage.saveTasks(updated);
+  };
+
   // ROUTINE ACTIONS
-  const handleAddRoutine = (title: string, interval: RoutineInterval, timeOfDay?: string) => {
+  const handleAddRoutine = (title: string, description?: string, interval?: RoutineInterval, timeOfDay?: string) => {
+    const actualInterval = interval || 'daily';
     const newRoutine: Routine = {
       id: 'routine-' + Date.now().toString(36),
       title,
-      interval,
-      timeOfDay,
+      description,
+      interval: actualInterval,
+      timeOfDay: actualInterval !== 'hourly' ? timeOfDay : undefined,
       nextDueAt: Date.now() + (interval === 'hourly' ? 3600000 : 86400000),
       completedCount: 0,
       streak: 0,
@@ -240,6 +288,25 @@ export const App: React.FC = () => {
     };
 
     const updated = [...routines, newRoutine];
+    setRoutines(updated);
+    storage.saveRoutines(updated);
+  };
+
+  const handleEditRoutine = (id: string, title: string, description?: string, interval?: RoutineInterval, timeOfDay?: string) => {
+    const updated = routines.map((r) => {
+      if (r.id === id) {
+        const updatedRoutine = {
+          ...r,
+          title,
+          description,
+          interval: interval || r.interval,
+          timeOfDay: (interval || r.interval) !== 'hourly' ? timeOfDay : undefined,
+        };
+        updatedRoutine.nextDueAt = storage.calculateNextDueTimestamp(updatedRoutine);
+        return updatedRoutine;
+      }
+      return r;
+    });
     setRoutines(updated);
     storage.saveRoutines(updated);
   };
@@ -622,6 +689,7 @@ export const App: React.FC = () => {
             tasks={displayedTasks}
             onToggleTask={handleToggleTask}
             onDeleteTask={handleDeleteTask}
+            onEditTask={handleEditTask}
             onClearCompleted={completedCount > 0 ? handleClearCompleted : undefined}
           />
         ) : mainTab === 'routines' ? (
@@ -630,6 +698,7 @@ export const App: React.FC = () => {
             onCompleteRoutine={handleCompleteRoutine}
             onDeleteRoutine={handleDeleteRoutine}
             onAddRoutine={handleAddRoutine}
+            onEditRoutine={handleEditRoutine}
           />
         ) : (
           <SkillLearningList

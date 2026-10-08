@@ -2,11 +2,12 @@ import React, { useState } from 'react';
 import { Plus, Clock, Bell, BellOff } from 'lucide-react';
 
 interface TaskInputProps {
-  onAddTask: (title: string, targetTime?: string, reminderEnabled?: boolean) => void;
+  onAddTask: (title: string, description?: string, targetTime?: string, reminderEnabled?: boolean) => void;
 }
 
 export const TaskInput: React.FC<TaskInputProps> = ({ onAddTask }) => {
   const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
   const [targetTime, setTargetTime] = useState('');
   const [reminderEnabled, setReminderEnabled] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
@@ -18,11 +19,13 @@ export const TaskInput: React.FC<TaskInputProps> = ({ onAddTask }) => {
 
     onAddTask(
       cleanTitle,
+      description.trim() || undefined,
       targetTime ? targetTime : undefined,
       reminderEnabled && !!targetTime
     );
 
     setTitle('');
+    setDescription('');
     setTargetTime('');
     setReminderEnabled(false);
     setShowTimePicker(false);
@@ -72,40 +75,49 @@ export const TaskInput: React.FC<TaskInputProps> = ({ onAddTask }) => {
       </div>
 
       {showTimePicker && (
-        <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5 bg-slate-900/90 border border-slate-800/90 rounded-xl text-sm animate-in fade-in slide-in-from-top-1 duration-200">
-          <div className="flex items-center gap-2">
-            <span className="text-slate-400 text-xs font-semibold">Reminder Time:</span>
-            <input
-              type="time"
-              value={targetTime}
-              onChange={handleTimeChange}
-              className="bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-1 text-slate-200 text-sm focus:outline-none focus:border-cyan-500 min-h-[36px]"
-            />
-          </div>
+        <div className="flex flex-col gap-2 px-3 py-2.5 bg-slate-900/90 border border-slate-800/90 rounded-xl text-sm animate-in fade-in slide-in-from-top-1 duration-200">
+          <textarea
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="Add optional description or links..."
+            rows={2}
+            className="w-full bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-1.5 text-slate-200 text-sm focus:outline-none focus:border-cyan-500 resize-none"
+          />
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <span className="text-slate-400 text-xs font-semibold">Reminder Time:</span>
+              <input
+                type="time"
+                value={targetTime}
+                onChange={handleTimeChange}
+                className="bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-1 text-slate-200 text-sm focus:outline-none focus:border-cyan-500 min-h-[36px]"
+              />
+            </div>
 
-          {targetTime && (
-            <button
-              type="button"
-              onClick={() => setReminderEnabled(!reminderEnabled)}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold transition-colors ${
-                reminderEnabled
-                  ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
-                  : 'bg-slate-800 text-slate-400'
-              }`}
-            >
-              {reminderEnabled ? (
-                <>
-                  <Bell className="w-3.5 h-3.5 text-cyan-400" />
-                  Alarm Active
-                </>
-              ) : (
-                <>
-                  <BellOff className="w-3.5 h-3.5 text-slate-500" />
-                  No Alarm
-                </>
-              )}
-            </button>
-          )}
+            {targetTime && (
+              <button
+                type="button"
+                onClick={() => setReminderEnabled(!reminderEnabled)}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold transition-colors ${
+                  reminderEnabled
+                    ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
+                    : 'bg-slate-800 text-slate-400'
+                }`}
+              >
+                {reminderEnabled ? (
+                  <>
+                    <Bell className="w-3.5 h-3.5 text-cyan-400" />
+                    Alarm Active
+                  </>
+                ) : (
+                  <>
+                    <BellOff className="w-3.5 h-3.5 text-slate-500" />
+                    No Alarm
+                  </>
+                )}
+              </button>
+            )}
+          </div>
         </div>
       )}
     </form>

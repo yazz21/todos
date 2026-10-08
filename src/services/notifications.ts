@@ -85,22 +85,30 @@ export const notificationService = {
         }
       }
 
-      if (Capacitor.isNativePlatform()) {
-        await LocalNotifications.schedule({
-          notifications: [
-            {
-              id: task.notificationId,
-              title: 'Task Reminder',
-              body: task.title,
-              schedule: { at: scheduledDate, allowWhileIdle: true },
-              channelId: CHANNEL_ID,
-              smallIcon: 'ic_launcher_round',
-              extra: { taskId: task.id },
-            },
-          ],
-        });
-      } else {
-        console.log(`[Web Simulation] Reminder scheduled for task "${task.title}" at ${scheduledDate.toLocaleTimeString()}`);
+      const backoffMinutes = [0, 5, 15, 45, 120];
+      const notifications = [];
+
+      for (let i = 0; i < backoffMinutes.length; i++) {
+        const triggerTime = new Date(scheduledDate.getTime() + backoffMinutes[i] * 60000);
+        if (triggerTime.getTime() > Date.now()) {
+          notifications.push({
+            id: task.notificationId * 10 + i,
+            title: i === 0 ? 'Task Reminder' : `Missed Task Reminder (${i})`,
+            body: task.title,
+            schedule: { at: triggerTime, allowWhileIdle: true },
+            channelId: CHANNEL_ID,
+            smallIcon: 'ic_launcher_round',
+            extra: { taskId: task.id },
+          });
+        }
+      }
+
+      if (notifications.length > 0) {
+        if (Capacitor.isNativePlatform()) {
+          await LocalNotifications.schedule({ notifications });
+        } else {
+          console.log(`[Web Simulation] ${notifications.length} Reminders scheduled for task "${task.title}" starting at ${scheduledDate.toLocaleTimeString()}`);
+        }
       }
     } catch (e) {
       console.error('Failed to schedule task reminder', e);
@@ -111,8 +119,9 @@ export const notificationService = {
     if (!notificationId) return;
     try {
       if (Capacitor.isNativePlatform()) {
+        const notificationsToCancel = [0, 1, 2, 3, 4].map(i => ({ id: notificationId * 10 + i }));
         await LocalNotifications.cancel({
-          notifications: [{ id: notificationId }],
+          notifications: notificationsToCancel,
         });
       }
     } catch (e) {

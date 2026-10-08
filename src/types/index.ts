@@ -1,6 +1,7 @@
 export interface Task {
   id: string;
   title: string;
+  description?: string;
   completed: boolean;
   targetTime?: string; // Format: "HH:mm", e.g. "14:30"
   targetDate?: string; // Format: "YYYY-MM-DD"
@@ -19,6 +20,7 @@ export type RoutineInterval = 'hourly' | 'daily' | 'weekly';
 export interface Routine {
   id: string;
   title: string;
+  description?: string;
   interval: RoutineInterval;
   timeOfDay?: string; // e.g. "09:00" for daily/weekly
   dayOfWeek?: number; // 0-6 (Sunday-Saturday) for weekly
