@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import type { Task } from '../types';
 import { storage } from '../services/storage';
-import { Check, Trash2, Clock, Bell, ListTodo, AlertTriangle, Archive, Zap, Edit3, ChevronDown, ChevronUp, BellOff, X, Save } from 'lucide-react';
+import { Check, Trash2, Clock, Bell, ListTodo, AlertTriangle, Archive, Zap, Edit3, ChevronDown, ChevronUp, BellOff, Save } from 'lucide-react';
 
 interface TaskListProps {
   tasks: Task[];
